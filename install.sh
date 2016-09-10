@@ -1,7 +1,11 @@
-#/bin/sh
+#/usr/bin/env bash
 BASE=$(dirname $(readlink -f ${0}))
-cp "${BASE}/ourl/config.sample.lua" "${BASE}/ourl/config.lua"
-cd "${BASE}/lib/hashids" && make
-cd "${BASE}/lib/idna" && make linux
-mv "${BASE}/lib/idna/idna.so" "${BASE}"
-cd ${BASE}
+PLATFORM=$(uname -s)
+case ${PLATFORM} in
+    Darwin)     PLATFORM='macosx'   ;;
+    FreeBSD)    PLATFORM='bsd'      ;;
+    *)          PLATFORM='linux'    ;;
+esac
+cp "${BASE}/lualib/ourl/config.sample.lua" "${BASE}/lualib/ourl/config.lua"
+cd "${BASE}/lualib/hashids" && make
+cd "${BASE}/idna" && make ${PLATFORM} && mv "${BASE}/idna/idna.so" "${BASE}/lualib" && cd ${BASE}

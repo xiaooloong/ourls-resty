@@ -8,7 +8,7 @@ local strcat = table.concat
 local push   = table.insert
 local str_switch_pos
 
-local ok, lib = pcall(require, "lib.hashids.clib");
+local ok, lib = pcall(require, "hashids.clib");
 if ok then
 	str_switch_pos = lib.str_switch_pos;
 else
