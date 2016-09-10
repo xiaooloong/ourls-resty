@@ -1,6 +1,10 @@
 local config = require 'ourl.config'
 local router = require 'lib.router'
 local hashid = require 'lib.hashids.init'
+local neturl = require 'lib.net.url'
+-- idna.so 必须在 lua_package_cpath 根目录下才能使用
+local idna   = require 'idna'
+local iputil = require 'lib.resty.iputils'
 local json   = require 'cjson'
 local mysql  = require 'resty.mysql'
 local r_sha1 = require 'resty.sha1'
@@ -13,10 +17,10 @@ end
 
 local STATUS_ERR = 0
 local STATUS_OK  = 1
-local r, h, db_rw, db_ro
+local r, h, db_rw, db_ro, base, proxy_whitelist
 
 local function log(...)
-    ngx.log(config.log_level, ...)
+    ngx.log(config.log_level, json.encode({...}))
 end
 
 local function finish()
@@ -48,16 +52,16 @@ end
 local function db_query(db, query)
     local ok, err = db:send_query(query)
     if not ok then
-        log('failed to send query: ', query, ' : ', err)
+        log('failed to send query', query, err)
         die('数据库错误')
     end
     
     local res, err, errcode, sqlstate = db:read_result()
     if not res then
-        log('failed to read result of query: ', query, errcode, ': ', err, sqlstate)
+        log('failed to read result of query', query, errcode, err, sqlstate)
         die('数据库错误')
     elseif config.debug then
-        log('[DEBUG]: ' .. json.encode({query, res, errcode, err, sqlstate}))
+        log('[DEBUG]', query, res, errcode, err, sqlstate)
     end
     
     return res, err, errcode, sqlstate
@@ -65,34 +69,67 @@ end
 
 local function ip2long(ip)
     local l = 0
-    for v in ip:gmatch([=[[^\.]+]=]) do
-        l = l * 256 + v
+    for v in ngx.re.gmatch(ip, [=[[^\.]+]=], 'o') do -- 这条注释是为了修复文本编辑器对 lua 语法的 bug ，如果你看到了，说明这人忘记删了]]
+        l = l * 256 + tonumber(v[0])
     end
     return l
 end
 
 local function real_remote_addr()
-    --Todo: 判断代理
-    return ip2long(ngx.var.remote_addr)
-end
-
-local function test(params)
-    for k, v in pairs(params) do
-        if '' == type(v) then
-            ngx.say(k, ': ', table.concat(v, ', '))
-        else
-            ngx.say(k, ': ', v)
+    local ip = ngx.var.remote_addr
+    local proxy = ngx.req.get_headers()['X-Forwarded-For']
+    if proxy then
+        if 'table' == type(proxy) then
+            proxy = proxy[1]
+        end
+        local pattern = [=[([0-9]{1,3}\.){3}[0-9]{1,3}]=]
+        local m = ngx.re.match(proxy, pattern, 'o')
+        if m then
+            proxy = m[0]
+            if iputil.ip_in_cidrs(ip, proxy_whitelist) then
+                ip = proxy
+            end
         end
     end
+    return ip2long(ip)
+end
+
+local function url_modify(url, scheme)
+    scheme = scheme or 'http'
+    url = neturl.parse(url)
+    if not url.host then
+        return nil
+    end
+    local ok, err = idna.encode(url.host)
+    if ok then
+        url.host = ok
+    else
+        if config.debug then
+            log('[DEBUG]', url.host, err)
+        end
+        die('非法域名')
+    end
+    if not url.scheme then
+        url.scheme = scheme
+    end
+    return tostring(url:normalize())
 end
 
 local function shorten(params)
     local url = params.url
     if not url then
-        die('请传入正确的 url')
+        die('请输入正确的 url')
     end
     if 'table' ==  type(url) then
         url = url[1]
+    end
+    url = url_modify(url)
+    if not url then
+        die('请输入正确的 url')
+    end
+    local pattern = ("^https?://%s/"):format(ngx.var.host)
+    if ngx.re.match(url, pattern, 'o') then
+        die('该地址不能被缩短')
     end
     local sha1 = r_sha1:new()
     sha1:update(url)
@@ -120,7 +157,7 @@ local function shorten(params)
     local s = h:encode(id)
     json_api({
         status = STATUS_OK,
-        s_url  = ngx.var.scheme .. [[://]] .. ngx.var.host .. [[/]] .. s
+        s_url  = base .. s
     })
 end
 
@@ -132,7 +169,11 @@ local function expand(params)
     if 'table' == type(s) then
         s = s[1]
     end
-    local m = ngx.re.match(s, [[^https?://]] .. ngx.var.host .. [=[/([]=] .. config.hash.alphabet .. [=[]{]=] .. config.hash.length .. [=[})]=])
+    local pattern = ("^https?://%s/([%s]+)$"):format(
+        ngx.var.host,
+        config.hash.alphabet
+    )
+    local m = ngx.re.match(s, pattern, 'o')
     if m then
         s = m[1]
         local id = h:decode(s)
@@ -185,19 +226,19 @@ local function prepare()
     local err
     db_rw, err = mysql:new()
     if not db_rw then
-        log('failed to init mysql master: ', err)
+        log('failed to init mysql master', err)
         die('数据库错误')
     end
     db_ro, err = mysql:new()
     if not db_ro then
-        log('failed to init mysql slave: ', err)
+        log('failed to init mysql slave', err)
         die('数据库错误')
     end
     for name, db in pairs({db_rw = db_rw, db_ro = db_ro}) do
         db:set_timeout(config.db.timeout)
         local ok, err, errcode, sqlstate = db:connect(config[name])
         if not ok then
-            log('failed to connect to mysql: ', name, err, errcode, sqlstate)
+            log('failed to connect to mysql', name, errcode, err, sqlstate)
             die('数据库错误')
         end
         local count
@@ -205,20 +246,25 @@ local function prepare()
         if 0 == count then
             db_query(db, [[SET NAMES 'utf8';]])
         elseif err then
-            log('failed to get reused times: ', name, err)
+            log('failed to get reused times', name, err)
             die('数据库错误')
         end
     end
 
     if not r then
         r = router.new()
-        r:get('/test', test)
         r:get('/shorten', shorten)
         r:get('/expand', expand)
         r:get('/:hash', redirect)
     end
     if not h then
         h = hashid.new(config.hash.salt, config.hash.length, config.hash.alphabet)
+    end
+    if not base then
+        base = ("%s://%s/"):format(ngx.var.scheme, ngx.var.host)
+    end
+    if not proxy_whitelist then
+        proxy_whitelist = iputil.parse_cidrs(config.proxies)
     end
     ngx.req.read_body()
 end
@@ -233,7 +279,7 @@ function _M.run()
     )
     if not ok then
         if config.debug then
-            die('服务器错误' .. err)
+            die('服务器错误: ' .. err)
         else
             finish()
             ngx.status = ngx.HTTP_NOT_FOUND

@@ -26,6 +26,13 @@ _M.hash.salt     = 'ourl'
 _M.hash.length   = 5
 _M.hash.alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890'
 
+_M.proxies = {
+    '127.0.0.0/8',
+    '10.0.0.0/8',
+    '172.16.0.0/12',
+    '192.168.0.0/16',
+}
+
 _M.db.timeout   = 1000
 _M.db.keepalive = 10000
 _M.db.poolsize  = 10
