@@ -8,6 +8,7 @@ local json   = require 'cjson'
 local mysql  = require 'resty.mysql'
 local r_sha1 = require 'resty.sha1'
 local r_str  = require 'resty.string'
+local cache  = ngx.shared.ourls
 
 local ok, new_tab = pcall(require, "table.new")
 if not ok or type(new_tab) ~= "function" then
@@ -68,7 +69,7 @@ end
 
 local function ip2long(ip)
     local l = 0
-    for v in ngx.re.gmatch(ip, [=[[^\.]+]=], 'o') do -- 这条注释是为了修复文本编辑器对 lua 语法的 bug ，如果你看到了，说明这人忘记删了]]
+    for v in ngx.re.gmatch(ip, [=[[^\.]+]=], 'o') do
         l = l * 256 + tonumber(v[0])
     end
     return l
@@ -133,21 +134,26 @@ local function shorten(params)
     local sha1 = r_sha1:new()
     sha1:update(url)
     local digest = r_str.to_hex(sha1:final())
-    local query = "SELECT `id` FROM `urls` WHERE `sha1`=" .. ngx.quote_sql_str(digest)
-    local res = db_query(db_ro, query)
-    local id = 0
-    if #res > 0 then
-        id = res[1]['id']
-    else
-        local ip = real_remote_addr()
-        local query = ("INSERT INTO `urls` (`sha1`, `url`, `create_at`, `creator`) VALUES (%s, %s, %s, %s)"):format(
-            ngx.quote_sql_str(digest),
-            ngx.quote_sql_str(url),
-            ngx.quote_sql_str(ngx.time()),
-            ngx.quote_sql_str(ip)
-        )
-        local res = db_query(db_rw, query)
-        id = res['insert_id']
+    local id = cache:get(digest)
+    if not id then
+        local query = "SELECT `id` FROM `urls` WHERE `sha1`=" .. ngx.quote_sql_str(digest)
+        local res = db_query(db_ro, query)
+        id = 0
+        if #res > 0 then
+            id = res[1]['id']
+            cache:set(digest, id)
+        else
+            local ip = real_remote_addr()
+            local query = ("INSERT INTO `urls` (`sha1`, `url`, `create_at`, `creator`) VALUES (%s, %s, %s, %s)"):format(
+                ngx.quote_sql_str(digest),
+                ngx.quote_sql_str(url),
+                ngx.quote_sql_str(ngx.time()),
+                ngx.quote_sql_str(ip)
+            )
+            local res = db_query(db_rw, query)
+            id = res['insert_id']
+            cache:set(digest, id)
+        end
     end
     id = tonumber(id)
     if not id then
@@ -179,16 +185,21 @@ local function expand(params)
         if not id or not id[1] then
             die('短地址无法解析')
         end
-        local query = "SELECT `url` FROM `urls` WHERE `id`=" .. ngx.quote_sql_str(id[1])
-        local res = db_query(db_ro, query)
-        if #res > 0 then
-            json_api({
-                status = STATUS_OK,
+        local url = cache:get(id[1])
+        if not url then
+            local query = "SELECT `url` FROM `urls` WHERE `id`=" .. ngx.quote_sql_str(id[1])
+            local res = db_query(db_ro, query)
+            if #res > 0 then
                 url = res[1]['url']
-            })
-        else
-            die('地址不存在')
+                cache:set(id[1], url)
+            else
+                die('地址不存在')
+            end
         end
+        json_api({
+            status = STATUS_OK,
+            url = url
+        })
     else
         die('请传入正确的短链接')
     end
@@ -206,16 +217,21 @@ local function redirect(params)
     if not id or not id[1] then
         die('请传入正确的短地址')
     end
-    local query = "SELECT `url` FROM `urls` WHERE `id`=" .. ngx.quote_sql_str(id[1])
-    local res = db_query(db_ro, query)
-    if #res > 0 then
-        local query = "UPDATE `urls` SET `count`=`count`+1 WHERE `id`=" .. ngx.quote_sql_str(id[1])
-        db_query(db_rw, query)
-        finish()
-        ngx.redirect(res[1]['url'], ngx.HTTP_MOVED_TEMPORARILY)
-    else
-        die('地址不存在')
+    local url = cache:get(id[1])
+    if not url then
+        local query = "SELECT `url` FROM `urls` WHERE `id`=" .. ngx.quote_sql_str(id[1])
+        local res = db_query(db_ro, query)
+        if #res > 0 then
+            url = res[1]['url']
+            cache:set(id[1], url)
+        else
+            die('地址不存在')
+        end
     end
+    local query = "UPDATE `urls` SET `count`=`count`+1 WHERE `id`=" .. ngx.quote_sql_str(id[1])
+    db_query(db_rw, query)
+    finish()
+    ngx.redirect(res[1]['url'], ngx.HTTP_MOVED_TEMPORARILY)
 end
 local _M = new_tab(0, 8)
 
