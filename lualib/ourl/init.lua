@@ -95,6 +95,11 @@ end
 
 local function url_modify(url, scheme)
     scheme = scheme or 'http'
+    
+    if not ngx.re.match(url, '^https?://.*', 'o') then
+        url = scheme..'://'..url
+    end
+
     url = neturl.parse(url)
     if not url.host then
         return nil
@@ -107,9 +112,6 @@ local function url_modify(url, scheme)
             log('[DEBUG]', url.host, err)
         end
         die('非法域名')
-    end
-    if not url.scheme then
-        url.scheme = scheme
     end
     return tostring(url:normalize())
 end
