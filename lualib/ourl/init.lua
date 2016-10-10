@@ -95,11 +95,9 @@ end
 
 local function url_modify(url, scheme)
     scheme = scheme or 'http'
-    
-    if not ngx.re.match(url, '^https?://.*', 'o') then
-        url = scheme..'://'..url
+    if not ngx.re.match(url, [[^https?://]], 'io') then
+        url = scheme .. '://' .. url
     end
-
     url = neturl.parse(url)
     if not url.host then
         return nil
