@@ -231,7 +231,7 @@ local function redirect(params)
     local query = "UPDATE `urls` SET `count`=`count`+1 WHERE `id`=" .. ngx.quote_sql_str(id[1])
     db_query(db_rw, query)
     finish()
-    ngx.redirect(res[1]['url'], ngx.HTTP_MOVED_TEMPORARILY)
+    ngx.redirect(url, ngx.HTTP_MOVED_TEMPORARILY)
 end
 local _M = new_tab(0, 8)
 
