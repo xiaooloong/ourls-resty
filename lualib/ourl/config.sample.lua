@@ -8,14 +8,14 @@ _M.db_rw = new_tab(0, 8)
 _M.db_ro = new_tab(0, 8)
 _M.hash  = new_tab(0, 4)
 
-_M.db_rw.host = 'localhost'
+_M.db_rw.host = '127.0.0.1'
 _M.db_rw.port = 3306
 --_M.db_rw.path = '/var/lib/mysql/mysql.sock'
 _M.db_rw.database = 'ourl'
 _M.db_rw.user     = 'ourl'
 _M.db_rw.password = ''
 
-_M.db_ro.host = 'localhost'
+_M.db_ro.host = '127.0.0.1'
 _M.db_ro.port = 3306
 --_M.db_ro.path = '/var/lib/mysql/mysql.sock'
 _M.db_ro.database = 'ourl'

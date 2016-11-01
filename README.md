@@ -13,14 +13,16 @@
 
 #### 安装
  - 使用 opm 包管理安装本库： `opm install xiaooloong/ourls-resty`
- - 安装 lua 库依赖： `luarocks install net-urls router`
- - 参考 [hashids.lua][4] 的说明安装 hashids。
+ - 安装 lua 库依赖： `luarocks install net-url && luarocks install router`
+ - 参考 [hashids.lua][4] 的说明安装 hashids
 
 #### 配置
- - 进入工程目录，复制 `config.sample.lua` 为 `config.lua`
+ - 进入工程目录 `/usr/local/openresty/site/lualib/ourl`
+ - 复制 `config.sample.lua` 为 `config.lua`
  - 修改 `config.lua` 中的数据库配置、hashids 参数、可信代理服务器的 cidr
  - 恢复 `urls.sql` 至 `mysql` 或 `mariadb` 数据库
- - 进入 nginx/conf 目录，根据自己的实际情况修改 （合并配置，修改 server_name …）
+ - 进入 `/usr/local/openresty/nginx/conf` 目录
+ - 根据自己的实际情况，配置静态文件，合并配置
 
 #### 完成 
  - 启动 openresty （service openresty start）

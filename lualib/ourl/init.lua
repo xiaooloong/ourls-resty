@@ -235,7 +235,7 @@ local function redirect(params)
 end
 local _M = new_tab(0, 8)
 
-_M._VERSION = '0.3.0'
+_M._VERSION = '0.3.1'
 
 local function prepare()
     local err
