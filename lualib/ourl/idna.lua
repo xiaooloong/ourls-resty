@@ -2,9 +2,11 @@ local ffi = require 'ffi'
 local ffi_new = ffi.new
 local ffi_string = ffi.string
 local ffi_typeof = ffi.typeof
+local ffi_c = ffi.C
 local type = type
 local char = string.char
 ffi.cdef[[
+void free (void *__ptr);
 int idna_to_ascii_8z (const char *input, char **output, int flags);
 int idna_to_unicode_8z8z (const char *input, char **output, int flags);
 ]]
@@ -28,8 +30,11 @@ function _M.encode(text)
     local buff_out = ffi_new(buff_ptr_type)
     local ok = idna.idna_to_ascii_8z(text, buff_out, 0)
     if 0 == ok then
-        return ffi_string(buff_out[0])
+        local str = ffi_string(buff_out[0])
+        ffi_c.free(buff_out[0])
+        return str
     else
+        ffi_c.free(buff_out[0])
         return nil, 'failed to encode'
     end
 end
@@ -42,8 +47,11 @@ function _M.decode(text)
     local buff_out = ffi_new(buff_ptr_type)
     local ok = idna.idna_to_unicode_8z8z(text, buff_out, 0)
     if 0 == ok then
-        return ffi_string(buff_out[0])
+        local str = ffi_string(buff_out[0])
+        ffi_c.free(buff_out[0])
+        return str
     else
+        ffi_c.free(buff_out[0])
         return nil, 'failed to encode'
     end
 end
